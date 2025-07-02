@@ -22,6 +22,8 @@ Const COLUMN_DIRECTION As Long = 12                  ' Richtung
 Const COLUMN_PROTOCOL As Long = 15                   ' Protokoll
 Const COLUMN_PORTS As Long = 16                      ' Ports
 Const COLUMN_COSTCENTER As Long = 19                 ' Kostenstelle
+Const COLUMN_CONNECTIONSTATUS As Long = 21           ' Ergebnis Verbindung
+Const COLUMN_CONNECTIONSTATUSDATE As Long = 22       ' Zeitpunkt Test
 
 
 Const LTCOLUMN_ENV As Long = 1                       ' Ebene
@@ -33,6 +35,7 @@ Const LTCOLUMN_OS As Long = 6                        ' Betriebsystem
 Const LTCOLUMN_DIRECTION As Long = 7                 ' Richtung
 
 ' === Main ===
+' Summary: Creates export workbooks and marks rows as processed.
 Sub Process()
     Dim targetWorksheets() As String
     Dim targetColumns() As String
@@ -204,6 +207,7 @@ NextIteration:
     
 End Sub
 
+' Summary: Looks up host/IP/OS entries for the given environment and direction.
 Function FindIPs(direction As String, env As Variant, lookupSheet As Worksheet) As Variant
     Dim lastRow    As Long
     Dim i          As Long
@@ -249,6 +253,7 @@ Function FindIPs(direction As String, env As Variant, lookupSheet As Worksheet) 
     End If
 End Function
 
+' Summary: Copies a cell value to the target sheet when the destination column exists.
 Sub CopyValue(sourceSheet As Worksheet, targetSheet As Worksheet, targetColumns() As String, targetRow As Long, dataRow As Range, sourceCol As Long, targetCol As String, Optional numberFormat As String = "")
     Dim targetIndex As Long
     
@@ -263,6 +268,7 @@ Sub CopyValue(sourceSheet As Worksheet, targetSheet As Worksheet, targetColumns(
     
 End Sub
 
+' Summary: Writes a fixed value to the target sheet if the column exists.
 Sub WriteValue(targetSheet As Worksheet, targetColumns() As String, targetRow As Long, targetCol As String, fixedValue As Variant, Optional numberFormat As String = "")
     Dim targetIndex As Long
     
@@ -278,6 +284,7 @@ Sub WriteValue(targetSheet As Worksheet, targetColumns() As String, targetRow As
 End Sub
 
 ' === Helpers ===
+' Summary: Returns True if val exists in arr.
 Function IsInArray(val As String, arr As Variant) As Boolean
     Dim item As Variant
     For Each item In arr
@@ -289,8 +296,8 @@ Function IsInArray(val As String, arr As Variant) As Boolean
     IsInArray = False
 End Function
 
-' Splits a string by comma, trims each item, and removes empty items.
-' Returns a zero-based array of Strings (as a Variant).
+' Summary: Splits a comma-separated string, trims each value and removes empties.
+' Returns a zero-based array of strings.
 Public Function SplitAndTrim(inputStr As String) As Variant
     Dim parts As Variant
     Dim col As Collection
@@ -326,7 +333,7 @@ Public Function SplitAndTrim(inputStr As String) As Variant
     SplitAndTrim = result
 End Function
 
-' Returns the zero-based index of searchText within the string array arr.
+' Summary: Returns the zero-based index of searchText within the string array arr.
 ' If not found, returns -1.
 '
 ' arr          A 1-D array of strings (can be 0-based or 1-based).
@@ -361,6 +368,7 @@ Public Function IndexOfInArray(arr As Variant, _
     IndexOfInArray = -1
 End Function
 
+' Summary: Ensures that a folder exists, creating it if necessary.
 Function EnsureFolderExists(folderPath As String) As Boolean
     Dim fso As Object
     On Error GoTo ErrHandler
@@ -379,6 +387,157 @@ Function EnsureFolderExists(folderPath As String) As Boolean
 ErrHandler:
     ' Something went wrong (invalid path, permissions, etc.)
     EnsureFolderExists = False
+End Function
+
+' === Import connection check results ===
+' Summary: Reads connection result CSV files and updates connection status columns.
+Sub ImportConnectionResults()
+    Dim overviewWorkbook As Workbook
+    Dim importPath As String
+    Dim targetWorksheets() As String
+    Dim csvCache As Object
+    Dim sourceSheet As Worksheet
+    Dim lookupSheet As Worksheet
+    Dim lastRow As Long
+    Dim rowIndex As Long
+    Dim env As String
+    Dim direction As String
+    Dim hosts As Variant
+    Dim hostItem As Variant
+    Dim ipValue As String
+    Dim portValue As String
+    Dim ipParts As Variant
+    Dim portParts As Variant
+    Dim host As String
+    Dim csvData As Object
+    Dim ipPart As Variant
+    Dim portPart As Variant
+    Dim result As Variant
+    Dim total As Long
+    Dim successCount As Long
+    Dim latestTs As String
+    Dim statusText As String
+
+    Set overviewWorkbook = ActiveWorkbook
+    importPath = overviewWorkbook.Path & "\Import\"
+    targetWorksheets = SplitAndTrim(TARGET_WORKSHEETS)
+    Set csvCache = CreateObject("Scripting.Dictionary")
+
+    For Each sourceSheet In overviewWorkbook.Worksheets
+        If Not IsInArray(sourceSheet.Name, targetWorksheets) Then GoTo NextSheet
+
+        Set lookupSheet = overviewWorkbook.Worksheets(PREFIX_LOOKUP & sourceSheet.Name)
+        lastRow = sourceSheet.Cells(sourceSheet.Rows.Count, COLUMN_ENV).End(xlUp).Row
+
+        For rowIndex = HEADER_ROW + 1 To lastRow
+            direction = CStr(sourceSheet.Cells(rowIndex, COLUMN_DIRECTION).Value)
+            If StrComp(direction, "OUT", vbTextCompare) <> 0 Then GoTo NextRow
+            If StrComp(CStr(sourceSheet.Cells(rowIndex, COLUMN_CONNECTIONSTATUS).Value), "OK", vbTextCompare) = 0 Then GoTo NextRow
+
+            env = CStr(sourceSheet.Cells(rowIndex, COLUMN_ENV).Value)
+            hosts = FindIPs("OUT", env, lookupSheet)
+            On Error Resume Next
+            If UBound(hosts) < LBound(hosts) Then
+                On Error GoTo 0
+                GoTo NextRow
+            End If
+            On Error GoTo 0
+
+            ipValue = CStr(sourceSheet.Cells(rowIndex, COLUMN_IP).Value)
+            portValue = CStr(sourceSheet.Cells(rowIndex, COLUMN_PORTS).Value)
+
+            ipParts = SplitAndTrim(Replace(ipValue, ";", ","))
+            portParts = SplitAndTrim(Replace(portValue, ";", ","))
+
+            total = 0
+            successCount = 0
+            latestTs = ""
+
+            For Each hostItem In hosts
+                host = CStr(hostItem(0))
+                If Not csvCache.Exists(host) Then
+                    csvCache.Add host, LoadCsvFile(importPath & host & ".csv")
+                End If
+                Set csvData = csvCache(host)
+
+                For Each ipPart In ipParts
+                    For Each portPart In portParts
+                        total = total + 1
+                        result = CheckCsvForHostPort(csvData, ipPart, portPart)
+                        If result(0) Then
+                            successCount = successCount + 1
+                        End If
+                        If latestTs = "" Or result(1) > latestTs Then latestTs = result(1)
+                    Next portPart
+                Next ipPart
+            Next hostItem
+
+            If total > 0 And latestTs <> "" Then
+                If successCount = total Then
+                    statusText = "OK"
+                ElseIf successCount > 0 Then
+                    statusText = "partially"
+                Else
+                    statusText = "NOK"
+                End If
+
+                sourceSheet.Cells(rowIndex, COLUMN_CONNECTIONSTATUS).Value = statusText
+                sourceSheet.Cells(rowIndex, COLUMN_CONNECTIONSTATUSDATE).Value = latestTs
+                sourceSheet.Cells(rowIndex, COLUMN_CONNECTIONSTATUSDATE).NumberFormat = "yyyy-mm-dd hh:mm:ss"
+            End If
+
+NextRow:
+        Next rowIndex
+
+NextSheet:
+    Next sourceSheet
+End Sub
+
+' Summary: Loads a CSV file of connection test results into a dictionary keyed by host and port.
+Private Function LoadCsvFile(filePath As String) As Object
+    Dim dict As Object
+    Dim fso As Object
+    Dim ts As Object
+    Dim line As String
+    Dim parts As Variant
+    Dim headerSkipped As Boolean
+
+    Set dict = CreateObject("Scripting.Dictionary")
+    If Dir(filePath) = "" Then
+        Set LoadCsvFile = dict
+        Exit Function
+    End If
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set ts = fso.OpenTextFile(filePath, 1)
+    headerSkipped = False
+    Do Until ts.AtEndOfStream
+        line = ts.ReadLine
+        If Not headerSkipped Then
+            headerSkipped = True
+        Else
+            parts = Split(line, ",")
+            If UBound(parts) >= 4 Then
+                dict(LCase(Trim(parts(1))) & "|" & Trim(parts(2))) = Array(Trim(parts(0)), LCase(Trim(parts(4))))
+            End If
+        End If
+    Loop
+    ts.Close
+    Set LoadCsvFile = dict
+End Function
+
+' Summary: Checks CSV data for a host or IP and port and returns success flag and timestamp.
+Private Function CheckCsvForHostPort(csvData As Object, hostOrIp As String, port As String) As Variant
+    Dim key As String
+    Dim arr As Variant
+
+    key = LCase(Trim(hostOrIp)) & "|" & Trim(port)
+    If csvData.Exists(key) Then
+        arr = csvData(key)
+        CheckCsvForHostPort = Array(LCase(arr(1)) = "open", arr(0))
+    Else
+        CheckCsvForHostPort = Array(False, "")
+    End If
 End Function
 
 
