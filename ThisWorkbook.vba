@@ -454,7 +454,7 @@ Sub ImportConnectionResults()
             latestTs = ""
 
             For Each hostItem In hosts
-                host = CStr(hostItem(0))
+                host = StripDomain(CStr(hostItem(0)))
                 If Not csvCache.Exists(host) Then
                     csvCache.Add host, LoadCsvFile(importPath & host & ".csv")
                 End If
@@ -463,7 +463,7 @@ Sub ImportConnectionResults()
                 For Each ipPart In ipParts
                     For Each portPart In portParts
                         total = total + 1
-                        result = CheckCsvForHostPort(csvData, ipPart, portPart)
+                        result = CheckCsvForHostPort(csvData, StripDomain(CStr(ipPart)), portPart)
                         If result(0) Then
                             successCount = successCount + 1
                         End If
@@ -518,7 +518,7 @@ Private Function LoadCsvFile(filePath As String) As Object
         Else
             parts = Split(line, ",")
             If UBound(parts) >= 4 Then
-                dict(LCase(Trim(parts(1))) & "|" & Trim(parts(2))) = Array(Trim(parts(0)), LCase(Trim(parts(4))))
+                dict(LCase(StripDomain(Trim(parts(1)))) & "|" & Trim(parts(2))) = Array(Trim(parts(0)), LCase(Trim(parts(4))))
             End If
         End If
     Loop
@@ -531,12 +531,28 @@ Private Function CheckCsvForHostPort(csvData As Object, hostOrIp As String, port
     Dim key As String
     Dim arr As Variant
 
-    key = LCase(Trim(hostOrIp)) & "|" & Trim(port)
+    key = LCase(StripDomain(Trim(hostOrIp))) & "|" & Trim(port)
     If csvData.Exists(key) Then
         arr = csvData(key)
         CheckCsvForHostPort = Array(LCase(arr(1)) = "open", arr(0))
     Else
         CheckCsvForHostPort = Array(False, "")
+    End If
+End Function
+
+' Summary: Strips domain portion from a hostname if present.
+Private Function StripDomain(hostOrIp As String) As String
+    Dim dotPos As Long
+
+    If hostOrIp Like "*[A-Za-z]*" Then
+        dotPos = InStr(1, hostOrIp, ".")
+        If dotPos > 0 Then
+            StripDomain = Left$(hostOrIp, dotPos - 1)
+        Else
+            StripDomain = hostOrIp
+        End If
+    Else
+        StripDomain = hostOrIp
     End If
 End Function
 
