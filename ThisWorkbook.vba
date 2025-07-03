@@ -472,19 +472,17 @@ Sub ImportConnectionResults()
                 Next ipPart
             Next hostItem
 
-            If total > 0 And latestTs <> "" Then
-                If successCount = total Then
-                    statusText = "OK"
-                ElseIf successCount > 0 Then
-                    statusText = "partially"
-                Else
-                    statusText = "NOK"
-                End If
-
-                sourceSheet.Cells(rowIndex, COLUMN_CONNECTIONSTATUS).Value = statusText
-                sourceSheet.Cells(rowIndex, COLUMN_CONNECTIONSTATUSDATE).Value = latestTs
-                sourceSheet.Cells(rowIndex, COLUMN_CONNECTIONSTATUSDATE).NumberFormat = "yyyy-mm-dd hh:mm:ss"
+            If successCount = total Then
+                statusText = "OK"
+            ElseIf successCount > 0 Then
+                statusText = "partially"
+            Else
+                statusText = "NOK"
             End If
+
+            sourceSheet.Cells(rowIndex, COLUMN_CONNECTIONSTATUS).Value = statusText
+            sourceSheet.Cells(rowIndex, COLUMN_CONNECTIONSTATUSDATE).Value = latestTs
+            sourceSheet.Cells(rowIndex, COLUMN_CONNECTIONSTATUSDATE).NumberFormat = "yyyy-mm-dd hh:mm:ss"
 
 NextRow:
         Next rowIndex
