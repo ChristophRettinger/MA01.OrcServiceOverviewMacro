@@ -527,7 +527,9 @@ Private Function LoadCsvFile(filePath As String) As Object
 End Function
 
 ' Summary: Checks CSV data for a host or IP and port and returns success flag and timestamp.
-Private Function CheckCsvForHostPort(csvData As Object, hostOrIp As String, port As String) As Variant
+Private Function CheckCsvForHostPort(ByVal csvData As Object, _
+                                    ByVal hostOrIp As String, _
+                                    ByVal port As String) As Variant
     Dim key As String
     Dim arr As Variant
 
