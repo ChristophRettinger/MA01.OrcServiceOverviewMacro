@@ -454,7 +454,7 @@ Sub ImportConnectionResults()
             latestTs = ""
 
             For Each hostItem In hosts
-                host = StripDomain(CStr(hostItem(0)))
+                host = CStr(hostItem(0))
                 If Not csvCache.Exists(host) Then
                     csvCache.Add host, LoadCsvFile(importPath & host & ".csv")
                 End If
@@ -475,7 +475,7 @@ Sub ImportConnectionResults()
             If successCount = total Then
                 statusText = "OK"
             ElseIf successCount > 0 Then
-                statusText = "partially"
+                statusText = CStr(successCount) & "/" & CStr(total)
             Else
                 statusText = "NOK"
             End If
