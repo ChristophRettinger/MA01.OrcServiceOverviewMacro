@@ -480,7 +480,10 @@ Sub ImportConnectionResults()
                 statusText = "NOK"
             End If
 
-            sourceSheet.Cells(rowIndex, COLUMN_CONNECTIONSTATUS).Value = statusText
+            With sourceSheet.Cells(rowIndex, COLUMN_CONNECTIONSTATUS)
+                .NumberFormat = "@"
+                .Value = statusText
+            End With
             sourceSheet.Cells(rowIndex, COLUMN_CONNECTIONSTATUSDATE).Value = latestTs
             sourceSheet.Cells(rowIndex, COLUMN_CONNECTIONSTATUSDATE).NumberFormat = "yyyy-mm-dd hh:mm:ss"
 
